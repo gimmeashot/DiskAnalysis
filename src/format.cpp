@@ -85,7 +85,7 @@ static void write_node(std::ostream& out, const FileNode& node, std::size_t dept
 }
 
 void write_json(std::ostream& out, const ScanResult& result, std::size_t max_depth) {
-    out << "{\"version\":\"0.1.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
+    out << "{\"version\":\"0.2.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
         << ",\"elapsedMs\":" << result.statistics.elapsed.count() << ",\"skipped\":"
         << result.statistics.skipped_items << ",\"root\":";
     if (result.root) write_node(out, *result.root, 0, max_depth); else out << "null";

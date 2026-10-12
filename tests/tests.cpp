@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 
 namespace {
@@ -40,6 +41,36 @@ int main() {
         CHECK(item.bounds.x + item.bounds.width <= 80);
         CHECK(item.bounds.y + item.bounds.height <= 20);
     }
+
+    FileNode synthetic;
+    synthetic.name = "root";
+    synthetic.type = NodeType::directory;
+    for (std::uintmax_t size : {400ULL, 250ULL, 150ULL, 100ULL, 60ULL, 40ULL}) {
+        auto child = std::make_unique<FileNode>();
+        child->name = "item-" + std::to_string(size);
+        child->type = size == 400 ? NodeType::directory : NodeType::file;
+        child->size = size;
+        synthetic.size += size;
+        synthetic.children.push_back(std::move(child));
+    }
+    const auto compact = layout_treemap(synthetic, 60, 20, {4, TreemapMode::all});
+    CHECK(compact.size() == 4);
+    CHECK(compact.back().aggregated);
+    CHECK(compact.back().label == "Other");
+    CHECK(compact.back().size == 200);
+    for (std::size_t first = 0; first < compact.size(); ++first) {
+        const auto& a = compact[first].bounds;
+        CHECK(a.width > 0 && a.height > 0);
+        for (std::size_t second = first + 1; second < compact.size(); ++second) {
+            const auto& b = compact[second].bounds;
+            const bool overlap = a.x < b.x + b.width && a.x + a.width > b.x &&
+                                 a.y < b.y + b.height && a.y + a.height > b.y;
+            CHECK(!overlap);
+        }
+    }
+    const auto dirs = layout_treemap(synthetic, 60, 20, {30, TreemapMode::directories});
+    CHECK(dirs.size() == 1);
+    CHECK(dirs.front().node && dirs.front().node->type == NodeType::directory);
     std::filesystem::remove_all(base, ec);
     if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
     std::cout << "All tests passed\n";

@@ -1,6 +1,6 @@
 # DiskAnalysis
 
-DiskAnalysis 0.1 is a dependency-free C++20 command-line disk usage analyzer with a terminal treemap.
+DiskAnalysis 0.2 is a dependency-free C++20 command-line disk usage analyzer with a squarified terminal treemap.
 
 ## Build
 
@@ -18,9 +18,12 @@ MSVC, GCC, and Clang are supported. The resulting executable is named `disk-anal
 disk-analysis scan "C:\Users\User\Downloads"
 disk-analysis . --top 10 --min-size 1MiB --color always
 disk-analysis /var --depth 3 --exclude cache --json
+disk-analysis . --treemap-items 15 --treemap-mode dirs
 ```
 
 Run `disk-analysis --help` for every option. Symlinks are not followed by default. Press `Ctrl+C` to stop a long scan safely and receive the partial result.
+
+Version 0.2 groups small entries into an `Other` block and can restrict the treemap to files or directories with `--treemap-mode`.
 
 ## Exit codes
 
