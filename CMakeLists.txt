@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
-project(DiskAnalysis VERSION 0.2.0 LANGUAGES CXX)
+project(DiskAnalysis VERSION 0.3.0 LANGUAGES CXX)
 
 option(DISK_ANALYSIS_BUILD_TESTS "Build tests" ON)
 
 add_library(disk_analysis_lib
+    src/analytics.cpp
     src/scanner.cpp
     src/treemap.cpp
     src/format.cpp

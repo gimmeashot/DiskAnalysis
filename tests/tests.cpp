@@ -1,3 +1,4 @@
+#include "disk_analysis/analytics.hpp"
 #include "disk_analysis/format.hpp"
 #include "disk_analysis/scanner.hpp"
 #include "disk_analysis/treemap.hpp"
@@ -6,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -45,10 +47,13 @@ int main() {
     FileNode synthetic;
     synthetic.name = "root";
     synthetic.type = NodeType::directory;
+    std::size_t item_index = 0;
     for (std::uintmax_t size : {400ULL, 250ULL, 150ULL, 100ULL, 60ULL, 40ULL}) {
         auto child = std::make_unique<FileNode>();
         child->name = "item-" + std::to_string(size);
         child->type = size == 400 ? NodeType::directory : NodeType::file;
+        const std::string suffix = item_index++ % 2 == 0 ? ".TXT" : ".bin";
+        child->path = std::filesystem::path(child->name + suffix);
         child->size = size;
         synthetic.size += size;
         synthetic.children.push_back(std::move(child));
@@ -71,6 +76,41 @@ int main() {
     const auto dirs = layout_treemap(synthetic, 60, 20, {30, TreemapMode::directories});
     CHECK(dirs.size() == 1);
     CHECK(dirs.front().node && dirs.front().node->type == NodeType::directory);
+
+    const auto largest = largest_files(synthetic, 2);
+    CHECK(largest.size() == 2);
+    CHECK(largest[0]->size == 250);
+    CHECK(largest[1]->size == 150);
+    CHECK(largest_files(synthetic, 0).empty());
+
+    const auto extension_statistics = analyze_extensions(synthetic, 10);
+    CHECK(extension_statistics.size() == 2);
+    CHECK(extension_statistics[0].extension == ".bin");
+    CHECK(extension_statistics[0].size == 390);
+    CHECK(extension_statistics[0].file_count == 3);
+    CHECK(extension_statistics[1].extension == ".txt");
+    CHECK(extension_statistics[1].size == 210);
+    CHECK(extension_statistics[1].file_count == 2);
+
+    ScanResult json_result;
+    json_result.root = std::make_unique<FileNode>();
+    json_result.root->name = synthetic.name;
+    json_result.root->path = synthetic.path;
+    json_result.root->type = synthetic.type;
+    json_result.root->size = synthetic.size;
+    for (const auto& source : synthetic.children) {
+        auto copy = std::make_unique<FileNode>();
+        copy->path = source->path;
+        copy->name = source->name;
+        copy->type = source->type;
+        copy->size = source->size;
+        json_result.root->children.push_back(std::move(copy));
+    }
+    std::ostringstream json;
+    write_json(json, json_result, 1, 2, 2);
+    CHECK(json.str().find("\"version\":\"0.3.0\"") != std::string::npos);
+    CHECK(json.str().find("\"largestFiles\":[") != std::string::npos);
+    CHECK(json.str().find("\"extensions\":[") != std::string::npos);
     std::filesystem::remove_all(base, ec);
     if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
     std::cout << "All tests passed\n";

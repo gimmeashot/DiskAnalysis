@@ -1,3 +1,4 @@
+#include "disk_analysis/analytics.hpp"
 #include "disk_analysis/format.hpp"
 
 #include <algorithm>
@@ -84,12 +85,32 @@ static void write_node(std::ostream& out, const FileNode& node, std::size_t dept
     out << '}';
 }
 
-void write_json(std::ostream& out, const ScanResult& result, std::size_t max_depth) {
-    out << "{\"version\":\"0.2.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
+void write_json(std::ostream& out, const ScanResult& result, std::size_t max_depth,
+                std::size_t largest_file_count, std::size_t extension_count) {
+    out << "{\"version\":\"0.3.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
         << ",\"elapsedMs\":" << result.statistics.elapsed.count() << ",\"skipped\":"
         << result.statistics.skipped_items << ",\"root\":";
     if (result.root) write_node(out, *result.root, 0, max_depth); else out << "null";
-    out << "}\n";
+    out << ",\"largestFiles\":[";
+    if (result.root) {
+        const auto files = largest_files(*result.root, largest_file_count);
+        for (std::size_t index = 0; index < files.size(); ++index) {
+            if (index) out << ',';
+            out << "{\"path\":\"" << json_escape(path_to_utf8(files[index]->path))
+                << "\",\"size\":" << files[index]->size << '}';
+        }
+    }
+    out << "],\"extensions\":[";
+    if (result.root) {
+        const auto extensions = analyze_extensions(*result.root, extension_count);
+        for (std::size_t index = 0; index < extensions.size(); ++index) {
+            if (index) out << ',';
+            out << "{\"extension\":\"" << json_escape(extensions[index].extension)
+                << "\",\"size\":" << extensions[index].size
+                << ",\"files\":" << extensions[index].file_count << '}';
+        }
+    }
+    out << "]}\n";
 }
 
 } // namespace disk_analysis

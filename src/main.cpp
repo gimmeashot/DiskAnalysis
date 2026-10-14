@@ -1,3 +1,4 @@
+#include "disk_analysis/analytics.hpp"
 #include "disk_analysis/format.hpp"
 #include "disk_analysis/scanner.hpp"
 #include "disk_analysis/treemap.hpp"
@@ -29,6 +30,8 @@ struct CliOptions {
     std::filesystem::path path{"."};
     disk_analysis::ScanOptions scan;
     std::size_t top{20};
+    std::size_t largest_file_count{10};
+    std::size_t extension_count{10};
     int width{};
     int height{16};
     disk_analysis::TreemapOptions treemap_options;
@@ -41,11 +44,13 @@ struct CliOptions {
 
 void help() {
     std::cout <<
-        "DiskAnalysis 0.2.0 - console disk usage analyzer\n\n"
+        "DiskAnalysis 0.3.0 - console disk usage analyzer\n\n"
         "Usage: disk-analysis [scan] [path] [options]\n\n"
         "Options:\n"
         "  --depth N           Maximum scan depth\n"
         "  --top N             Number of largest entries (default: 20)\n"
+        "  --largest-files N   Largest files from the whole tree (default: 10)\n"
+        "  --extensions N      Largest extension groups (default: 10)\n"
         "  --min-size SIZE     Keep files at least this large (e.g. 10MiB)\n"
         "  --exclude TEXT      Skip paths containing TEXT (repeatable)\n"
         "  --follow-symlinks   Follow directory symlinks (use carefully)\n"
@@ -82,7 +87,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "scan" && !path_set) continue;
         if (arg == "--help" || arg == "-h") { options.help = true; continue; }
-        if (arg == "--version") { std::cout << "disk-analysis 0.2.0\n"; std::exit(0); }
+        if (arg == "--version") { std::cout << "disk-analysis 0.3.0\n"; std::exit(0); }
         if (arg == "--follow-symlinks") { options.scan.follow_symlinks = true; continue; }
         if (arg == "--no-treemap") { options.treemap = false; continue; }
         if (arg == "--json") { options.json = true; options.quiet = true; continue; }
@@ -91,11 +96,14 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             if (i + 1 >= argc) { std::cerr << "Missing value for " << name << '\n'; return std::nullopt; }
             return std::string(argv[++i]);
         };
-        if (arg == "--depth" || arg == "--top" || arg == "--width" || arg == "--height" || arg == "--treemap-items") {
+        if (arg == "--depth" || arg == "--top" || arg == "--largest-files" || arg == "--extensions" ||
+            arg == "--width" || arg == "--height" || arg == "--treemap-items") {
             auto value = need_value(arg.c_str()); if (!value) return std::nullopt;
             std::size_t number{}; if (!parse_number(*value, number)) { std::cerr << "Invalid number: " << *value << '\n'; return std::nullopt; }
             if (arg == "--depth") options.scan.max_depth = number;
             else if (arg == "--top") options.top = number;
+            else if (arg == "--largest-files") options.largest_file_count = number;
+            else if (arg == "--extensions") options.extension_count = number;
             else if (arg == "--width") options.width = static_cast<int>(number);
             else if (arg == "--height") options.height = static_cast<int>(number);
             else options.treemap_options.max_items = number;
@@ -170,7 +178,10 @@ int main(int argc, char** argv) {
     auto result = scanner.scan(options->path, &cancelled, progress);
     if (!options->quiet) std::cerr << "\r" << std::string(100, ' ') << "\r";
     if (!result.root) { std::cerr << "Cannot scan path: " << disk_analysis::path_to_utf8(options->path) << '\n'; return 3; }
-    if (options->json) { disk_analysis::write_json(std::cout, result); return result.cancelled ? 4 : 0; }
+    if (options->json) {
+        disk_analysis::write_json(std::cout, result, 2, options->largest_file_count, options->extension_count);
+        return result.cancelled ? 4 : 0;
+    }
 
     std::cout << "Path:        " << disk_analysis::path_to_utf8(result.root->path) << '\n'
               << "Total size:  " << disk_analysis::format_size(result.root->size) << '\n'
@@ -184,6 +195,26 @@ int main(int argc, char** argv) {
         const auto& node = *result.root->children[i];
         const double percent = result.root->size ? 100.0 * node.size / result.root->size : 0.0;
         std::cout << "  " << disk_analysis::format_size(node.size) << "\t" << static_cast<int>(percent + .5) << "%\t" << node.name << '\n';
+    }
+    const auto large_files = disk_analysis::largest_files(*result.root, options->largest_file_count);
+    if (!large_files.empty()) {
+        std::cout << "\nLargest files:\n";
+        for (const auto* file : large_files) {
+            const double percent = result.root->size ? 100.0 * file->size / result.root->size : 0.0;
+            std::cout << "  " << disk_analysis::format_size(file->size) << "\t"
+                      << static_cast<int>(percent + .5) << "%\t"
+                      << disk_analysis::path_to_utf8(file->path) << '\n';
+        }
+    }
+    const auto extensions = disk_analysis::analyze_extensions(*result.root, options->extension_count);
+    if (!extensions.empty()) {
+        std::cout << "\nExtensions:\n";
+        for (const auto& extension : extensions) {
+            const double percent = result.root->size ? 100.0 * extension.size / result.root->size : 0.0;
+            std::cout << "  " << disk_analysis::format_size(extension.size) << "\t"
+                      << static_cast<int>(percent + .5) << "%\t"
+                      << extension.file_count << " file(s)\t" << extension.extension << '\n';
+        }
     }
     if (options->treemap) {
         std::cout << "\nTreemap:\n";
