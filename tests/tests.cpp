@@ -43,6 +43,16 @@ int main() {
         CHECK(item.bounds.x + item.bounds.width <= 80);
         CHECK(item.bounds.y + item.bounds.height <= 20);
     }
+    { std::ofstream file(base / "duplicate-a.dat", std::ios::binary); file << std::string(512, 'x'); }
+    { std::ofstream file(base / "duplicate-b.dat", std::ios::binary); file << std::string(512, 'x'); }
+    { std::ofstream file(base / "same-size.dat", std::ios::binary); file << std::string(512, 'y'); }
+    auto duplicate_result = scanner.scan(base);
+    const auto duplicate_groups = find_duplicates(*duplicate_result.root, 10, 100);
+    CHECK(duplicate_groups.size() == 1);
+    CHECK(duplicate_groups.front().files.size() == 2);
+    CHECK(duplicate_groups.front().file_size == 512);
+    CHECK(duplicate_groups.front().reclaimable_size == 512);
+    CHECK(find_duplicates(*duplicate_result.root, 10, 1024).empty());
 
     FileNode synthetic;
     synthetic.name = "root";
@@ -108,9 +118,10 @@ int main() {
     }
     std::ostringstream json;
     write_json(json, json_result, 1, 2, 2);
-    CHECK(json.str().find("\"version\":\"0.3.0\"") != std::string::npos);
+    CHECK(json.str().find("\"version\":\"0.4.0\"") != std::string::npos);
     CHECK(json.str().find("\"largestFiles\":[") != std::string::npos);
     CHECK(json.str().find("\"extensions\":[") != std::string::npos);
+    CHECK(json.str().find("\"duplicateGroups\":[") != std::string::npos);
     std::filesystem::remove_all(base, ec);
     if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
     std::cout << "All tests passed\n";

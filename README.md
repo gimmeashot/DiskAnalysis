@@ -1,6 +1,6 @@
 # DiskAnalysis
 
-DiskAnalysis 0.3 is a dependency-free C++20 command-line disk usage analyzer with a squarified terminal treemap, largest-file search, and extension statistics.
+DiskAnalysis 0.4 is a dependency-free C++20 command-line disk usage analyzer with a squarified terminal treemap, file analytics, and verified duplicate detection.
 
 ## Build
 
@@ -20,11 +20,12 @@ disk-analysis . --top 10 --min-size 1MiB --color always
 disk-analysis /var --depth 3 --exclude cache --json
 disk-analysis . --treemap-items 15 --treemap-mode dirs
 disk-analysis . --largest-files 25 --extensions 15
+disk-analysis . --duplicates 10 --duplicate-min-size 10MiB
 ```
 
 Run `disk-analysis --help` for every option. Symlinks are not followed by default. Press `Ctrl+C` to stop a long scan safely and receive the partial result.
 
-Version 0.3 finds the largest files anywhere in the scanned tree and summarizes disk usage by normalized file extension. Pass `0` to `--largest-files` or `--extensions` to hide either report.
+Version 0.4 can find duplicate files and estimate reclaimable space. Duplicate detection is opt-in because it reads candidate file contents. Candidates are grouped by size, hashed in streaming mode, and then compared byte-for-byte before being reported. No files are modified or deleted.
 
 ## Exit codes
 

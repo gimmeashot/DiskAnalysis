@@ -32,6 +32,8 @@ struct CliOptions {
     std::size_t top{20};
     std::size_t largest_file_count{10};
     std::size_t extension_count{10};
+    std::size_t duplicate_count{};
+    std::uintmax_t duplicate_min_size{1024ULL * 1024};
     int width{};
     int height{16};
     disk_analysis::TreemapOptions treemap_options;
@@ -44,13 +46,15 @@ struct CliOptions {
 
 void help() {
     std::cout <<
-        "DiskAnalysis 0.3.0 - console disk usage analyzer\n\n"
+        "DiskAnalysis 0.4.0 - console disk usage analyzer\n\n"
         "Usage: disk-analysis [scan] [path] [options]\n\n"
         "Options:\n"
         "  --depth N           Maximum scan depth\n"
         "  --top N             Number of largest entries (default: 20)\n"
         "  --largest-files N   Largest files from the whole tree (default: 10)\n"
         "  --extensions N      Largest extension groups (default: 10)\n"
+        "  --duplicates N      Find N duplicate groups (off by default)\n"
+        "  --duplicate-min-size SIZE  Minimum duplicate size (default: 1MiB)\n"
         "  --min-size SIZE     Keep files at least this large (e.g. 10MiB)\n"
         "  --exclude TEXT      Skip paths containing TEXT (repeatable)\n"
         "  --follow-symlinks   Follow directory symlinks (use carefully)\n"
@@ -87,7 +91,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "scan" && !path_set) continue;
         if (arg == "--help" || arg == "-h") { options.help = true; continue; }
-        if (arg == "--version") { std::cout << "disk-analysis 0.3.0\n"; std::exit(0); }
+        if (arg == "--version") { std::cout << "disk-analysis 0.4.0\n"; std::exit(0); }
         if (arg == "--follow-symlinks") { options.scan.follow_symlinks = true; continue; }
         if (arg == "--no-treemap") { options.treemap = false; continue; }
         if (arg == "--json") { options.json = true; options.quiet = true; continue; }
@@ -96,7 +100,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             if (i + 1 >= argc) { std::cerr << "Missing value for " << name << '\n'; return std::nullopt; }
             return std::string(argv[++i]);
         };
-        if (arg == "--depth" || arg == "--top" || arg == "--largest-files" || arg == "--extensions" ||
+        if (arg == "--depth" || arg == "--top" || arg == "--largest-files" || arg == "--extensions" || arg == "--duplicates" ||
             arg == "--width" || arg == "--height" || arg == "--treemap-items") {
             auto value = need_value(arg.c_str()); if (!value) return std::nullopt;
             std::size_t number{}; if (!parse_number(*value, number)) { std::cerr << "Invalid number: " << *value << '\n'; return std::nullopt; }
@@ -104,6 +108,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             else if (arg == "--top") options.top = number;
             else if (arg == "--largest-files") options.largest_file_count = number;
             else if (arg == "--extensions") options.extension_count = number;
+            else if (arg == "--duplicates") options.duplicate_count = number;
             else if (arg == "--width") options.width = static_cast<int>(number);
             else if (arg == "--height") options.height = static_cast<int>(number);
             else options.treemap_options.max_items = number;
@@ -121,6 +126,11 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             auto value = need_value("--min-size"); if (!value) return std::nullopt;
             auto parsed = disk_analysis::parse_size(*value); if (!parsed) { std::cerr << "Invalid size: " << *value << '\n'; return std::nullopt; }
             options.scan.min_size = *parsed; continue;
+        }
+        if (arg == "--duplicate-min-size") {
+            auto value = need_value("--duplicate-min-size"); if (!value) return std::nullopt;
+            auto parsed = disk_analysis::parse_size(*value); if (!parsed) { std::cerr << "Invalid size: " << *value << '\n'; return std::nullopt; }
+            options.duplicate_min_size = *parsed; continue;
         }
         if (arg == "--exclude") { auto value = need_value("--exclude"); if (!value) return std::nullopt; options.scan.excludes.push_back(*value); continue; }
         if (arg == "--color") {
@@ -179,7 +189,9 @@ int main(int argc, char** argv) {
     if (!options->quiet) std::cerr << "\r" << std::string(100, ' ') << "\r";
     if (!result.root) { std::cerr << "Cannot scan path: " << disk_analysis::path_to_utf8(options->path) << '\n'; return 3; }
     if (options->json) {
-        disk_analysis::write_json(std::cout, result, 2, options->largest_file_count, options->extension_count);
+        disk_analysis::write_json(std::cout, result, 2, options->largest_file_count,
+                                  options->extension_count, options->duplicate_count,
+                                  options->duplicate_min_size);
         return result.cancelled ? 4 : 0;
     }
 
@@ -215,6 +227,25 @@ int main(int argc, char** argv) {
                       << static_cast<int>(percent + .5) << "%\t"
                       << extension.file_count << " file(s)\t" << extension.extension << '\n';
         }
+    }
+    const auto duplicates = disk_analysis::find_duplicates(*result.root, options->duplicate_count,
+                                                            options->duplicate_min_size);
+    if (!duplicates.empty()) {
+        std::uintmax_t total_reclaimable{};
+        std::cout << "\nDuplicate groups:\n";
+        for (std::size_t index = 0; index < duplicates.size(); ++index) {
+            const auto& group = duplicates[index];
+            total_reclaimable += group.reclaimable_size;
+            std::cout << "  Group " << index + 1 << ": " << group.files.size() << " copies, "
+                      << disk_analysis::format_size(group.file_size) << " each, reclaimable "
+                      << disk_analysis::format_size(group.reclaimable_size) << '\n';
+            for (const auto* file : group.files)
+                std::cout << "    " << disk_analysis::path_to_utf8(file->path) << '\n';
+        }
+        std::cout << "  Total potentially reclaimable: "
+                  << disk_analysis::format_size(total_reclaimable) << '\n';
+    } else if (options->duplicate_count > 0) {
+        std::cout << "\nDuplicate groups: none found\n";
     }
     if (options->treemap) {
         std::cout << "\nTreemap:\n";
