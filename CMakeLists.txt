@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
-project(DiskAnalysis VERSION 0.4.0 LANGUAGES CXX)
+cmake_policy(SET CMP0091 NEW)
+project(DiskAnalysis VERSION 0.5.0 LANGUAGES CXX)
+
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 option(DISK_ANALYSIS_BUILD_TESTS "Build tests" ON)
 
 add_library(disk_analysis_lib
     src/analytics.cpp
+    src/export.cpp
     src/scanner.cpp
     src/treemap.cpp
     src/format.cpp

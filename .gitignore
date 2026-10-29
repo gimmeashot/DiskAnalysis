@@ -1,6 +1,7 @@
 /build/
 /.vs/
 /out/
+/dist/
 *.user
 *.suo
 *.obj

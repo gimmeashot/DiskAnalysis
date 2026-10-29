@@ -1,4 +1,5 @@
 #include "disk_analysis/analytics.hpp"
+#include "disk_analysis/export.hpp"
 #include "disk_analysis/format.hpp"
 #include "disk_analysis/scanner.hpp"
 #include "disk_analysis/treemap.hpp"
@@ -118,10 +119,17 @@ int main() {
     }
     std::ostringstream json;
     write_json(json, json_result, 1, 2, 2);
-    CHECK(json.str().find("\"version\":\"0.4.0\"") != std::string::npos);
+    CHECK(json.str().find("\"version\":\"0.5.0\"") != std::string::npos);
     CHECK(json.str().find("\"largestFiles\":[") != std::string::npos);
     CHECK(json.str().find("\"extensions\":[") != std::string::npos);
     CHECK(json.str().find("\"duplicateGroups\":[") != std::string::npos);
+    CHECK(csv_escape("plain") == "plain");
+    CHECK(csv_escape("a,b") == "\"a,b\"");
+    CHECK(csv_escape("a\"b") == "\"a\"\"b\"");
+    std::ostringstream csv;
+    write_csv(csv, *json_result.root);
+    CHECK(csv.str().find("depth,type,size_bytes,file_count,directory_count,accessible,path\n") == 0);
+    CHECK(csv.str().find("1,file,250") != std::string::npos);
     std::filesystem::remove_all(base, ec);
     if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
     std::cout << "All tests passed\n";

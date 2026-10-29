@@ -1,4 +1,5 @@
 #include "disk_analysis/analytics.hpp"
+#include "disk_analysis/export.hpp"
 #include "disk_analysis/format.hpp"
 #include "disk_analysis/scanner.hpp"
 #include "disk_analysis/treemap.hpp"
@@ -8,6 +9,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -42,11 +44,12 @@ struct CliOptions {
     bool json{};
     bool quiet{};
     bool help{};
+    std::optional<std::filesystem::path> csv_path;
 };
 
 void help() {
     std::cout <<
-        "DiskAnalysis 0.4.0 - console disk usage analyzer\n\n"
+        "DiskAnalysis 0.5.0 - console disk usage analyzer\n\n"
         "Usage: disk-analysis [scan] [path] [options]\n\n"
         "Options:\n"
         "  --depth N           Maximum scan depth\n"
@@ -65,6 +68,7 @@ void help() {
         "  --treemap-mode MODE all, dirs, or files (default: all)\n"
         "  --color MODE        auto, always, or never\n"
         "  --json              Emit JSON instead of human-readable output\n"
+        "  --csv FILE          Export the complete scanned tree to CSV\n"
         "  --quiet             Hide scan progress\n"
         "  --help              Show this help\n"
         "  --version           Show version\n";
@@ -91,7 +95,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "scan" && !path_set) continue;
         if (arg == "--help" || arg == "-h") { options.help = true; continue; }
-        if (arg == "--version") { std::cout << "disk-analysis 0.4.0\n"; std::exit(0); }
+        if (arg == "--version") { std::cout << "disk-analysis 0.5.0\n"; std::exit(0); }
         if (arg == "--follow-symlinks") { options.scan.follow_symlinks = true; continue; }
         if (arg == "--no-treemap") { options.treemap = false; continue; }
         if (arg == "--json") { options.json = true; options.quiet = true; continue; }
@@ -131,6 +135,10 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             auto value = need_value("--duplicate-min-size"); if (!value) return std::nullopt;
             auto parsed = disk_analysis::parse_size(*value); if (!parsed) { std::cerr << "Invalid size: " << *value << '\n'; return std::nullopt; }
             options.duplicate_min_size = *parsed; continue;
+        }
+        if (arg == "--csv") {
+            auto value = need_value("--csv"); if (!value) return std::nullopt;
+            options.csv_path = cli_path(*value); continue;
         }
         if (arg == "--exclude") { auto value = need_value("--exclude"); if (!value) return std::nullopt; options.scan.excludes.push_back(*value); continue; }
         if (arg == "--color") {
@@ -188,6 +196,18 @@ int main(int argc, char** argv) {
     auto result = scanner.scan(options->path, &cancelled, progress);
     if (!options->quiet) std::cerr << "\r" << std::string(100, ' ') << "\r";
     if (!result.root) { std::cerr << "Cannot scan path: " << disk_analysis::path_to_utf8(options->path) << '\n'; return 3; }
+    if (options->csv_path) {
+        std::ofstream csv(*options->csv_path, std::ios::binary);
+        if (!csv) {
+            std::cerr << "Cannot create CSV file: " << disk_analysis::path_to_utf8(*options->csv_path) << '\n';
+            return 5;
+        }
+        disk_analysis::write_csv(csv, *result.root);
+        if (!csv) {
+            std::cerr << "Failed while writing CSV file: " << disk_analysis::path_to_utf8(*options->csv_path) << '\n';
+            return 5;
+        }
+    }
     if (options->json) {
         disk_analysis::write_json(std::cout, result, 2, options->largest_file_count,
                                   options->extension_count, options->duplicate_count,
