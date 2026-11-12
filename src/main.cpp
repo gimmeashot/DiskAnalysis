@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <atomic>
 #include <csignal>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -34,6 +36,8 @@ struct CliOptions {
     std::size_t top{20};
     std::size_t largest_file_count{10};
     std::size_t extension_count{10};
+    std::size_t oldest_file_count{};
+    std::optional<std::size_t> older_than_days;
     std::size_t duplicate_count{};
     std::uintmax_t duplicate_min_size{1024ULL * 1024};
     int width{};
@@ -49,13 +53,15 @@ struct CliOptions {
 
 void help() {
     std::cout <<
-        "DiskAnalysis 0.5.0 - console disk usage analyzer\n\n"
+        "DiskAnalysis 0.6.0 - console disk usage analyzer\n\n"
         "Usage: disk-analysis [scan] [path] [options]\n\n"
         "Options:\n"
         "  --depth N           Maximum scan depth\n"
         "  --top N             Number of largest entries (default: 20)\n"
         "  --largest-files N   Largest files from the whole tree (default: 10)\n"
         "  --extensions N      Largest extension groups (default: 10)\n"
+        "  --oldest-files N    Oldest files from the whole tree (off by default)\n"
+        "  --older-than DAYS   Only files older than DAYS (implies 20 results)\n"
         "  --duplicates N      Find N duplicate groups (off by default)\n"
         "  --duplicate-min-size SIZE  Minimum duplicate size (default: 1MiB)\n"
         "  --min-size SIZE     Keep files at least this large (e.g. 10MiB)\n"
@@ -95,7 +101,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "scan" && !path_set) continue;
         if (arg == "--help" || arg == "-h") { options.help = true; continue; }
-        if (arg == "--version") { std::cout << "disk-analysis 0.5.0\n"; std::exit(0); }
+        if (arg == "--version") { std::cout << "disk-analysis 0.6.0\n"; std::exit(0); }
         if (arg == "--follow-symlinks") { options.scan.follow_symlinks = true; continue; }
         if (arg == "--no-treemap") { options.treemap = false; continue; }
         if (arg == "--json") { options.json = true; options.quiet = true; continue; }
@@ -104,7 +110,8 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             if (i + 1 >= argc) { std::cerr << "Missing value for " << name << '\n'; return std::nullopt; }
             return std::string(argv[++i]);
         };
-        if (arg == "--depth" || arg == "--top" || arg == "--largest-files" || arg == "--extensions" || arg == "--duplicates" ||
+        if (arg == "--depth" || arg == "--top" || arg == "--largest-files" || arg == "--extensions" ||
+            arg == "--oldest-files" || arg == "--older-than" || arg == "--duplicates" ||
             arg == "--width" || arg == "--height" || arg == "--treemap-items") {
             auto value = need_value(arg.c_str()); if (!value) return std::nullopt;
             std::size_t number{}; if (!parse_number(*value, number)) { std::cerr << "Invalid number: " << *value << '\n'; return std::nullopt; }
@@ -112,6 +119,8 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             else if (arg == "--top") options.top = number;
             else if (arg == "--largest-files") options.largest_file_count = number;
             else if (arg == "--extensions") options.extension_count = number;
+            else if (arg == "--oldest-files") options.oldest_file_count = number;
+            else if (arg == "--older-than") options.older_than_days = number;
             else if (arg == "--duplicates") options.duplicate_count = number;
             else if (arg == "--width") options.width = static_cast<int>(number);
             else if (arg == "--height") options.height = static_cast<int>(number);
@@ -153,6 +162,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
         if (path_set) { std::cerr << "Only one path can be scanned\n"; return std::nullopt; }
         options.path = cli_path(arg); path_set = true;
     }
+    if (options.older_than_days && options.oldest_file_count == 0) options.oldest_file_count = 20;
     return options;
 }
 
@@ -196,6 +206,18 @@ int main(int argc, char** argv) {
     auto result = scanner.scan(options->path, &cancelled, progress);
     if (!options->quiet) std::cerr << "\r" << std::string(100, ' ') << "\r";
     if (!result.root) { std::cerr << "Cannot scan path: " << disk_analysis::path_to_utf8(options->path) << '\n'; return 3; }
+    std::optional<std::int64_t> modified_before;
+    if (options->older_than_days) {
+        constexpr std::uint64_t seconds_per_day = 24ULL * 60 * 60;
+        const auto days = static_cast<std::uint64_t>(*options->older_than_days);
+        const auto age_seconds = days > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) / seconds_per_day
+            ? static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+            : days * seconds_per_day;
+        const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        modified_before = now - static_cast<std::int64_t>(std::min<std::uint64_t>(
+            age_seconds, static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())));
+    }
     if (options->csv_path) {
         std::ofstream csv(*options->csv_path, std::ios::binary);
         if (!csv) {
@@ -211,7 +233,8 @@ int main(int argc, char** argv) {
     if (options->json) {
         disk_analysis::write_json(std::cout, result, 2, options->largest_file_count,
                                   options->extension_count, options->duplicate_count,
-                                  options->duplicate_min_size);
+                                  options->duplicate_min_size, options->oldest_file_count,
+                                  modified_before);
         return result.cancelled ? 4 : 0;
     }
 
@@ -237,6 +260,18 @@ int main(int argc, char** argv) {
                       << static_cast<int>(percent + .5) << "%\t"
                       << disk_analysis::path_to_utf8(file->path) << '\n';
         }
+    }
+    const auto old_files = disk_analysis::oldest_files(*result.root, options->oldest_file_count,
+                                                        modified_before);
+    if (!old_files.empty()) {
+        std::cout << "\nOldest files:\n";
+        for (const auto* file : old_files) {
+            std::cout << "  " << disk_analysis::format_timestamp(file->modified_unix_seconds)
+                      << "\t" << disk_analysis::format_size(file->size) << "\t"
+                      << disk_analysis::path_to_utf8(file->path) << '\n';
+        }
+    } else if (options->oldest_file_count > 0) {
+        std::cout << "\nOldest files: none matched\n";
     }
     const auto extensions = disk_analysis::analyze_extensions(*result.root, options->extension_count);
     if (!extensions.empty()) {

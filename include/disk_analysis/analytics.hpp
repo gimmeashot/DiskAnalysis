@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <optional>
 #include <vector>
 
 namespace disk_analysis {
@@ -21,6 +22,8 @@ struct DuplicateGroup {
 };
 
 std::vector<const FileNode*> largest_files(const FileNode& root, std::size_t limit);
+std::vector<const FileNode*> oldest_files(const FileNode& root, std::size_t limit,
+                                          std::optional<std::int64_t> modified_before = std::nullopt);
 std::vector<ExtensionStatistics> analyze_extensions(const FileNode& root, std::size_t limit);
 std::vector<DuplicateGroup> find_duplicates(const FileNode& root, std::size_t limit,
                                             std::uintmax_t minimum_size = 1);

@@ -18,6 +18,7 @@ struct FileNode {
     std::uintmax_t size{};
     std::uint64_t file_count{};
     std::uint64_t directory_count{};
+    std::int64_t modified_unix_seconds{-1};
     bool accessible{true};
     std::vector<std::unique_ptr<FileNode>> children;
 };

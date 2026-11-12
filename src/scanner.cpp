@@ -66,6 +66,15 @@ std::unique_ptr<FileNode> Scanner::scan_node(const std::filesystem::path& path, 
     if (node->type == NodeType::file) {
         node->size = std::filesystem::file_size(path, ec);
         if (ec) { report_error(path, ec); node->accessible = false; node->size = 0; }
+        std::error_code time_error;
+        const auto file_time = std::filesystem::last_write_time(path, time_error);
+        if (!time_error) {
+            const auto system_time = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                file_time - std::filesystem::file_time_type::clock::now() +
+                std::chrono::system_clock::now());
+            node->modified_unix_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                system_time.time_since_epoch()).count();
+        }
         node->file_count = 1;
         ++result_.statistics.files_scanned;
         result_.statistics.total_size += node->size;

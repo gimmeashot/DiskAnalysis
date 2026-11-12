@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <ctime>
 #include <iomanip>
 #include <limits>
 #include <ostream>
@@ -20,6 +21,20 @@ std::string format_size(std::uintmax_t bytes) {
     if (unit == 0) out << bytes;
     else out << std::fixed << std::setprecision(value >= 100.0 ? 0 : value >= 10.0 ? 1 : 2) << value;
     return out.str() + " " + units[unit];
+}
+
+std::string format_timestamp(std::int64_t unix_seconds) {
+    if (unix_seconds < 0) return "unknown";
+    const auto value = static_cast<std::time_t>(unix_seconds);
+    std::tm local{};
+#ifdef _WIN32
+    if (localtime_s(&local, &value) != 0) return "unknown";
+#else
+    if (!localtime_r(&value, &local)) return "unknown";
+#endif
+    std::ostringstream output;
+    output << std::put_time(&local, "%Y-%m-%d %H:%M:%S");
+    return output.str();
 }
 
 std::optional<std::uintmax_t> parse_size(std::string_view text) {
@@ -73,7 +88,8 @@ std::string json_escape(std::string_view value) {
 static void write_node(std::ostream& out, const FileNode& node, std::size_t depth, std::size_t max_depth) {
     out << "{\"name\":\"" << json_escape(node.name) << "\",\"path\":\""
         << json_escape(path_to_utf8(node.path)) << "\",\"size\":" << node.size
-        << ",\"files\":" << node.file_count << ",\"directories\":" << node.directory_count;
+        << ",\"files\":" << node.file_count << ",\"directories\":" << node.directory_count
+        << ",\"modifiedUnix\":" << node.modified_unix_seconds;
     if (depth < max_depth && !node.children.empty()) {
         out << ",\"children\":[";
         for (std::size_t i = 0; i < node.children.size(); ++i) {
@@ -87,8 +103,9 @@ static void write_node(std::ostream& out, const FileNode& node, std::size_t dept
 
 void write_json(std::ostream& out, const ScanResult& result, std::size_t max_depth,
                 std::size_t largest_file_count, std::size_t extension_count,
-                std::size_t duplicate_count, std::uintmax_t duplicate_min_size) {
-    out << "{\"version\":\"0.5.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
+                std::size_t duplicate_count, std::uintmax_t duplicate_min_size,
+                std::size_t oldest_file_count, std::optional<std::int64_t> modified_before) {
+    out << "{\"version\":\"0.6.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
         << ",\"elapsedMs\":" << result.statistics.elapsed.count() << ",\"skipped\":"
         << result.statistics.skipped_items << ",\"root\":";
     if (result.root) write_node(out, *result.root, 0, max_depth); else out << "null";
@@ -109,6 +126,16 @@ void write_json(std::ostream& out, const ScanResult& result, std::size_t max_dep
             out << "{\"extension\":\"" << json_escape(extensions[index].extension)
                 << "\",\"size\":" << extensions[index].size
                 << ",\"files\":" << extensions[index].file_count << '}';
+        }
+    }
+    out << "],\"oldestFiles\":[";
+    if (result.root) {
+        const auto files = oldest_files(*result.root, oldest_file_count, modified_before);
+        for (std::size_t index = 0; index < files.size(); ++index) {
+            if (index) out << ',';
+            out << "{\"path\":\"" << json_escape(path_to_utf8(files[index]->path))
+                << "\",\"size\":" << files[index]->size
+                << ",\"modifiedUnix\":" << files[index]->modified_unix_seconds << '}';
         }
     }
     out << "],\"duplicateGroups\":[";

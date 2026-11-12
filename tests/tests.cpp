@@ -66,6 +66,7 @@ int main() {
         const std::string suffix = item_index++ % 2 == 0 ? ".TXT" : ".bin";
         child->path = std::filesystem::path(child->name + suffix);
         child->size = size;
+        child->modified_unix_seconds = 1000 + static_cast<std::int64_t>(item_index - 1);
         synthetic.size += size;
         synthetic.children.push_back(std::move(child));
     }
@@ -94,6 +95,15 @@ int main() {
     CHECK(largest[1]->size == 150);
     CHECK(largest_files(synthetic, 0).empty());
 
+    const auto oldest = oldest_files(synthetic, 2);
+    CHECK(oldest.size() == 2);
+    CHECK(oldest[0]->size == 250);
+    CHECK(oldest[0]->modified_unix_seconds == 1001);
+    CHECK(oldest[1]->size == 150);
+    const auto old_before = oldest_files(synthetic, 10, 1002);
+    CHECK(old_before.size() == 2);
+    CHECK(oldest_files(synthetic, 0).empty());
+
     const auto extension_statistics = analyze_extensions(synthetic, 10);
     CHECK(extension_statistics.size() == 2);
     CHECK(extension_statistics[0].extension == ".bin");
@@ -115,21 +125,24 @@ int main() {
         copy->name = source->name;
         copy->type = source->type;
         copy->size = source->size;
+        copy->modified_unix_seconds = source->modified_unix_seconds;
         json_result.root->children.push_back(std::move(copy));
     }
     std::ostringstream json;
     write_json(json, json_result, 1, 2, 2);
-    CHECK(json.str().find("\"version\":\"0.5.0\"") != std::string::npos);
+    CHECK(json.str().find("\"version\":\"0.6.0\"") != std::string::npos);
     CHECK(json.str().find("\"largestFiles\":[") != std::string::npos);
     CHECK(json.str().find("\"extensions\":[") != std::string::npos);
     CHECK(json.str().find("\"duplicateGroups\":[") != std::string::npos);
+    CHECK(json.str().find("\"oldestFiles\":[") != std::string::npos);
+    CHECK(json.str().find("\"modifiedUnix\":") != std::string::npos);
     CHECK(csv_escape("plain") == "plain");
     CHECK(csv_escape("a,b") == "\"a,b\"");
     CHECK(csv_escape("a\"b") == "\"a\"\"b\"");
     std::ostringstream csv;
     write_csv(csv, *json_result.root);
-    CHECK(csv.str().find("depth,type,size_bytes,file_count,directory_count,accessible,path\n") == 0);
-    CHECK(csv.str().find("1,file,250") != std::string::npos);
+    CHECK(csv.str().find("depth,type,size_bytes,file_count,directory_count,modified_unix,accessible,path\n") == 0);
+    CHECK(csv.str().find("1,file,250,0,0,1001") != std::string::npos);
     std::filesystem::remove_all(base, ec);
     if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
     std::cout << "All tests passed\n";

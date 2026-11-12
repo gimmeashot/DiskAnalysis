@@ -74,6 +74,24 @@ std::vector<const FileNode*> largest_files(const FileNode& root, std::size_t lim
     return files;
 }
 
+std::vector<const FileNode*> oldest_files(const FileNode& root, std::size_t limit,
+                                          std::optional<std::int64_t> modified_before) {
+    if (limit == 0) return {};
+    std::vector<const FileNode*> files;
+    collect_files(root, files);
+    files.erase(std::remove_if(files.begin(), files.end(), [&](const FileNode* file) {
+        return file->modified_unix_seconds < 0 ||
+               (modified_before && file->modified_unix_seconds > *modified_before);
+    }), files.end());
+    std::sort(files.begin(), files.end(), [](const FileNode* left, const FileNode* right) {
+        if (left->modified_unix_seconds != right->modified_unix_seconds)
+            return left->modified_unix_seconds < right->modified_unix_seconds;
+        return path_to_utf8(left->path) < path_to_utf8(right->path);
+    });
+    if (files.size() > limit) files.resize(limit);
+    return files;
+}
+
 std::vector<ExtensionStatistics> analyze_extensions(const FileNode& root, std::size_t limit) {
     if (limit == 0) return {};
     std::vector<const FileNode*> files;
