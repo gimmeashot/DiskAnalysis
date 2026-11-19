@@ -17,6 +17,7 @@ struct ScanOptions {
     std::uintmax_t min_size{};
     bool follow_symlinks{};
     std::vector<std::string> excludes;
+    std::vector<std::string> exclude_globs;
 };
 
 using ProgressCallback = std::function<void(const ScanStatistics&, const std::filesystem::path&)>;
@@ -39,6 +40,7 @@ private:
     ProgressCallback progress_;
     std::chrono::steady_clock::time_point last_progress_{};
     std::unordered_set<std::string> visited_directories_;
+    std::filesystem::path scan_root_;
 };
 
 } // namespace disk_analysis

@@ -2,6 +2,43 @@
 #include "disk_analysis/format.hpp"
 
 #include <algorithm>
+#include <cctype>
+
+namespace {
+
+std::string normalized_path(std::string value) {
+    std::replace(value.begin(), value.end(), '\\', '/');
+#ifdef _WIN32
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+#endif
+    return value;
+}
+
+bool wildcard_match(const std::string& pattern, const std::string& value) {
+    std::size_t pattern_index = 0, value_index = 0;
+    std::size_t star_index = std::string::npos, star_value_index = 0;
+    while (value_index < value.size()) {
+        if (pattern_index < pattern.size() &&
+            (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])) {
+            ++pattern_index;
+            ++value_index;
+        } else if (pattern_index < pattern.size() && pattern[pattern_index] == '*') {
+            star_index = pattern_index++;
+            star_value_index = value_index;
+        } else if (star_index != std::string::npos) {
+            pattern_index = star_index + 1;
+            value_index = ++star_value_index;
+        } else {
+            return false;
+        }
+    }
+    while (pattern_index < pattern.size() && pattern[pattern_index] == '*') ++pattern_index;
+    return pattern_index == pattern.size();
+}
+
+} // namespace
 
 namespace disk_analysis {
 
@@ -12,6 +49,7 @@ ScanResult Scanner::scan(const std::filesystem::path& root, std::atomic_bool* ca
     cancel_ = cancel;
     progress_ = std::move(progress);
     visited_directories_.clear();
+    scan_root_ = root.lexically_normal();
     last_progress_ = std::chrono::steady_clock::now();
     const auto started = last_progress_;
     result_.root = scan_node(root, 0);
@@ -23,8 +61,19 @@ ScanResult Scanner::scan(const std::filesystem::path& root, std::atomic_bool* ca
 
 bool Scanner::excluded(const std::filesystem::path& path) const {
     const std::string value = path_to_utf8(path);
-    return std::any_of(options_.excludes.begin(), options_.excludes.end(), [&](const std::string& pattern) {
+    if (std::any_of(options_.excludes.begin(), options_.excludes.end(), [&](const std::string& pattern) {
         return value.find(pattern) != std::string::npos;
+    })) return true;
+    if (options_.exclude_globs.empty()) return false;
+
+    const auto relative_path = path.lexically_normal().lexically_relative(scan_root_);
+    const std::string relative = normalized_path(path_to_utf8(relative_path));
+    const std::string filename = normalized_path(path_to_utf8(path.filename()));
+    return std::any_of(options_.exclude_globs.begin(), options_.exclude_globs.end(),
+                       [&](const std::string& raw_pattern) {
+        const std::string pattern = normalized_path(raw_pattern);
+        const std::string& target = pattern.find('/') == std::string::npos ? filename : relative;
+        return wildcard_match(pattern, target);
     });
 }
 
@@ -43,7 +92,7 @@ void Scanner::maybe_report_progress(const std::filesystem::path& path) {
 }
 
 std::unique_ptr<FileNode> Scanner::scan_node(const std::filesystem::path& path, std::size_t depth) {
-    if ((cancel_ && cancel_->load()) || excluded(path)) return nullptr;
+    if ((cancel_ && cancel_->load()) || (depth > 0 && excluded(path))) return nullptr;
     std::error_code ec;
     const auto status = std::filesystem::symlink_status(path, ec);
     if (ec) { report_error(path, ec); return nullptr; }

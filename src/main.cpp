@@ -53,7 +53,7 @@ struct CliOptions {
 
 void help() {
     std::cout <<
-        "DiskAnalysis 0.6.0 - console disk usage analyzer\n\n"
+        "DiskAnalysis 0.7.0 - console disk usage analyzer\n\n"
         "Usage: disk-analysis [scan] [path] [options]\n\n"
         "Options:\n"
         "  --depth N           Maximum scan depth\n"
@@ -66,6 +66,7 @@ void help() {
         "  --duplicate-min-size SIZE  Minimum duplicate size (default: 1MiB)\n"
         "  --min-size SIZE     Keep files at least this large (e.g. 10MiB)\n"
         "  --exclude TEXT      Skip paths containing TEXT (repeatable)\n"
+        "  --exclude-glob PAT  Skip relative paths matching * and ? (repeatable)\n"
         "  --follow-symlinks   Follow directory symlinks (use carefully)\n"
         "  --no-treemap        Do not draw a treemap\n"
         "  --width N           Treemap width (20..240)\n"
@@ -101,7 +102,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "scan" && !path_set) continue;
         if (arg == "--help" || arg == "-h") { options.help = true; continue; }
-        if (arg == "--version") { std::cout << "disk-analysis 0.6.0\n"; std::exit(0); }
+        if (arg == "--version") { std::cout << "disk-analysis 0.7.0\n"; std::exit(0); }
         if (arg == "--follow-symlinks") { options.scan.follow_symlinks = true; continue; }
         if (arg == "--no-treemap") { options.treemap = false; continue; }
         if (arg == "--json") { options.json = true; options.quiet = true; continue; }
@@ -150,6 +151,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv) {
             options.csv_path = cli_path(*value); continue;
         }
         if (arg == "--exclude") { auto value = need_value("--exclude"); if (!value) return std::nullopt; options.scan.excludes.push_back(*value); continue; }
+        if (arg == "--exclude-glob") { auto value = need_value("--exclude-glob"); if (!value) return std::nullopt; options.scan.exclude_globs.push_back(*value); continue; }
         if (arg == "--color") {
             auto value = need_value("--color"); if (!value) return std::nullopt;
             if (*value == "auto") options.color = CliOptions::Color::automatic;

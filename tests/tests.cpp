@@ -54,6 +54,17 @@ int main() {
     CHECK(duplicate_groups.front().file_size == 512);
     CHECK(duplicate_groups.front().reclaimable_size == 512);
     CHECK(find_duplicates(*duplicate_result.root, 10, 1024).empty());
+    std::filesystem::create_directories(base / "cache");
+    { std::ofstream file(base / "skip.tmp", std::ios::binary); file << std::string(50, 's'); }
+    { std::ofstream file(base / "keep.log", std::ios::binary); file << std::string(60, 'k'); }
+    { std::ofstream file(base / "cache" / "blob.bin", std::ios::binary); file << std::string(70, 'c'); }
+    ScanOptions glob_options;
+    glob_options.exclude_globs = {"*.tmp", "cache/*"};
+    Scanner glob_scanner(glob_options);
+    auto glob_result = glob_scanner.scan(base);
+    CHECK(glob_result.root != nullptr);
+    CHECK(glob_result.root->file_count == 6);
+    CHECK(glob_result.root->size == 1896);
 
     FileNode synthetic;
     synthetic.name = "root";
@@ -130,7 +141,7 @@ int main() {
     }
     std::ostringstream json;
     write_json(json, json_result, 1, 2, 2);
-    CHECK(json.str().find("\"version\":\"0.6.0\"") != std::string::npos);
+    CHECK(json.str().find("\"version\":\"0.7.0\"") != std::string::npos);
     CHECK(json.str().find("\"largestFiles\":[") != std::string::npos);
     CHECK(json.str().find("\"extensions\":[") != std::string::npos);
     CHECK(json.str().find("\"duplicateGroups\":[") != std::string::npos);

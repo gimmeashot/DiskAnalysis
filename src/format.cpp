@@ -105,7 +105,7 @@ void write_json(std::ostream& out, const ScanResult& result, std::size_t max_dep
                 std::size_t largest_file_count, std::size_t extension_count,
                 std::size_t duplicate_count, std::uintmax_t duplicate_min_size,
                 std::size_t oldest_file_count, std::optional<std::int64_t> modified_before) {
-    out << "{\"version\":\"0.6.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
+    out << "{\"version\":\"0.7.0\",\"cancelled\":" << (result.cancelled ? "true" : "false")
         << ",\"elapsedMs\":" << result.statistics.elapsed.count() << ",\"skipped\":"
         << result.statistics.skipped_items << ",\"root\":";
     if (result.root) write_node(out, *result.root, 0, max_depth); else out << "null";
